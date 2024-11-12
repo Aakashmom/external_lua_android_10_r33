@@ -382,7 +382,7 @@ int luaD_poscall (lua_State *L, CallInfo *ci, StkId firstResult, int nres) {
       luaD_hook(L, LUA_HOOKRET, -1);
       firstResult = restorestack(L, fr);
     }
-    L->oldpc = ci->previous->u.l.savedpc;  /* 'oldpc' for caller function */
+    L->oldpc = pcRel(ci->u.l.savedpc, ci_func(ci)->p);  /* 'oldpc' for caller function */
   }
   res = ci->func;  /* res == final position of 1st result */
   L->ci = ci->previous;  /* back to caller */

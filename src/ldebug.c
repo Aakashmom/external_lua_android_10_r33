@@ -34,10 +34,8 @@
 #define noLuaClosure(f)		((f) == NULL || (f)->c.tt == LUA_TCCL)
 
 
-/* Active Lua function (given call info) */
-#define ci_func(ci)		(clLvalue((ci)->func))
-
-
+/* inverse of 'pcRel' */
+#define invpcRel(pc, p)                ((p)->code + (pc) + 1)
 static const char *funcnamefromcode (lua_State *L, CallInfo *ci,
                                     const char **name);
 
@@ -71,20 +69,18 @@ static void swapextra (lua_State *L) {
 
 /*
 ** This function can be called asynchronously (e.g. during a signal).
-** Fields 'oldpc', 'basehookcount', and 'hookcount' (set by
-** 'resethookcount') are for debug only, and it is no problem if they
-** get arbitrary values (causes at most one wrong hook call). 'hookmask'
-** is an atomic value. We assume that pointers are atomic too (e.g., gcc
-** ensures that for all platforms where it runs). Moreover, 'hook' is
-** always checked before being called (see 'luaD_hook').
+** Fields 'basehookcount' and 'hookcount' (set by 'resethookcount')
+** are for debug only, and it is no problem if they get arbitrary
+** values (causes at most one wrong hook call). 'hookmask' is an atomic
+** value. We assume that pointers are atomic too (e.g., gcc ensures that
+** for all platforms where it runs). Moreover, 'hook' is always checked
+** before being called (see 'luaD_hook').
 */
 LUA_API void lua_sethook (lua_State *L, lua_Hook func, int mask, int count) {
   if (func == NULL || mask == 0) {  /* turn off hooks? */
     mask = 0;
     func = NULL;
   }
-  if (isLua(L->ci))
-    L->oldpc = L->ci->u.l.savedpc;
   L->hook = func;
   L->basehookcount = count;
   resethookcount(L);
@@ -666,7 +662,10 @@ l_noret luaG_runerror (lua_State *L, const char *fmt, ...) {
 void luaG_traceexec (lua_State *L) {
   CallInfo *ci = L->ci;
   lu_byte mask = L->hookmask;
+  const Proto *p = ci_func(ci)->p;
   int counthook = (--L->hookcount == 0 && (mask & LUA_MASKCOUNT));
+  /* 'L->oldpc' may be invalid; reset it in this case */
+  int oldpc = (L->oldpc < p->sizecode) ? L->oldpc : 0;
   if (counthook)
     resethookcount(L);  /* reset count */
   else if (!(mask & LUA_MASKLINE))
@@ -678,15 +677,15 @@ void luaG_traceexec (lua_State *L) {
   if (counthook)
     luaD_hook(L, LUA_HOOKCOUNT, -1);  /* call count hook */
   if (mask & LUA_MASKLINE) {
-    Proto *p = ci_func(ci)->p;
     int npc = pcRel(ci->u.l.savedpc, p);
     int newline = getfuncline(p, npc);
     if (npc == 0 ||  /* call linehook when enter a new function, */
-        ci->u.l.savedpc <= L->oldpc ||  /* when jump back (loop), or when */
-        newline != getfuncline(p, pcRel(L->oldpc, p)))  /* enter a new line */
+        ci->u.l.savedpc <= invpcRel(oldpc, p) ||  /* when jump back (loop), or when */
+        newline != getfuncline(p, oldpc))  /* enter a new line */
       luaD_hook(L, LUA_HOOKLINE, newline);  /* call line hook */
+
+    L->oldpc = npc;  /* 'pc' of last call to line hook */
   }
-  L->oldpc = ci->u.l.savedpc;
   if (L->status == LUA_YIELD) {  /* did hook yield? */
     if (counthook)
       L->hookcount = 1;  /* undo decrement to zero */

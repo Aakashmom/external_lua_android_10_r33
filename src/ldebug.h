@@ -13,6 +13,10 @@
 
 #define pcRel(pc, p)	(cast(int, (pc) - (p)->code) - 1)
 
+/* Active Lua function (given call info) */
+#define ci_func(ci)            (clLvalue((ci)->func))
+
+
 #define getfuncline(f,pc)	(((f)->lineinfo) ? (f)->lineinfo[pc] : -1)
 
 #define resethookcount(L)	(L->hookcount = L->basehookcount)
